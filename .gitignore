@@ -1,0 +1,29 @@
+__pycache__/
+lib/
+
+venv/
+.venv
+
+# Environment variables
+.env
+
+.vscode/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Alembic
+alembic/versions/*.pyc
+
+.pytest_cache/
+
+local/
