@@ -1,56 +1,52 @@
-from fastapi import FastAPI, Depends
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+"""Main FastAPI application with lifespan management."""
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+import logging
 
 from app.core.config import settings
-from app.db.session import get_db
+from app.api.api_router import api_v1_router, general_router
+from app.db.session import engine
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Lifespan context manager for startup and shutdown events."""
+    # Startup
+    logger.info("🚀 Starting up Bitpal Wallet Service...")
+    logger.info(f"📦 Database: {settings.DATABASE_URL.split('@')[1] if '@' in settings.DATABASE_URL else 'configured'}")
+    logger.info(f"🔐 JWT Algorithm: {settings.ALGORITHM}")
+    logger.info(f"⏱️  Token Expiry: {settings.ACCESS_TOKEN_EXPIRE_MINUTES} minutes")
+    
+    # Test database connection
+    try:
+        async with engine.connect() as conn:
+            logger.info("✅ Database connection established")
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {e}")
+    
+    yield
+    
+    # Shutdown
+    logger.info("🛑 Shutting down Bitpal Wallet Service...")
+    await engine.dispose()
+    logger.info("✅ Database connections closed")
+
 
 app = FastAPI(
     title=settings.APP_NAME,
+    version="1.0.0",
     debug=settings.DEBUG,
+    description="Bitpal Wallet Service - Secure digital wallet with Paystack integration",
+    lifespan=lifespan,
 )
 
-
-@app.get("/")
-async def root():
-    """Root endpoint."""
-    return {
-        "status_code": 200,
-        "status": "success",
-        "message": "Bitpal Wallet Service API",
-        "data": {
-            "version": "1.0.0",
-            "docs": "/docs"
-        }
-    }
-
-
-@app.get("/health")
-async def health_check(db: AsyncSession = Depends(get_db)):
-    """
-    Health check endpoint to verify API and database connectivity.
-    
-    Returns:
-        dict: Health status with database connection info
-    """
-    try:
-        # Test database connection
-        result = await db.execute(text("SELECT 1"))
-        result.scalar()
-        
-        db_status = "connected"
-    except Exception as e:
-        db_status = f"error: {str(e)}"
-    
-    return {
-        "status_code": 200,
-        "status": "success",
-        "message": "Service is healthy",
-        "data": {
-            "api": "operational",
-            "database": db_status
-        }
-    }
+# Register routers
+app.include_router(general_router)
+app.include_router(api_v1_router)
 
 
 if __name__ == "__main__":

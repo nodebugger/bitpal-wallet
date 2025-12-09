@@ -1,8 +1,8 @@
+"""Import all models here for Alembic to detect them."""
 from app.db.session import Base
 
-# Models will be imported here as they are created
-# Example:
-# from app.models.user import User
-# from app.models.wallet import Wallet
+# Import models for Alembic to detect
+from app.models.user import User  # noqa: F401
+from app.models.wallet import Wallet  # noqa: F401
 # from app.models.transaction import Transaction
 # from app.models.api_key import APIKey
