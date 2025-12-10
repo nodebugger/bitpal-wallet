@@ -137,7 +137,7 @@ bitpal-wallet/
 ## API Endpoints
 
 ### Authentication (`/auth`)
-- `GET /auth/google` - Initiate Google OAuth sign-in (returns URL or redirects)
+- `GET /auth/google` - Initiate Google OAuth sign-in (returns JSON URL)
 - `GET /auth/google/callback` - OAuth callback handler
 
 ### API Key Management (`/keys`)
@@ -151,7 +151,8 @@ bitpal-wallet/
 - `POST /wallet/paystack/webhook` - Paystack webhook endpoint (called by Paystack)
 - `GET /wallet/balance` - Get current wallet balance
 - `GET /wallet/transactions` - Get transaction history
-- `GET /wallet/deposit/{reference}/status` - Check deposit status
+- `GET /wallet/deposit/{reference}/status` - Check deposit status (from our DB)
+- `GET /wallet/deposit/{reference}/verify` - Verify deposit with Paystack API
 - `POST /wallet/transfer` - Transfer funds to another wallet
 
 See [API_DOCUMENTATION.md](./API_DOCUMENTATION.md) for complete endpoint specifications.

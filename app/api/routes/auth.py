@@ -1,4 +1,5 @@
 """Authentication endpoints."""
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,20 +15,17 @@ router = APIRouter()
 
 
 @router.get("/google")
-async def google_sign_in(redirect: bool = Query(False, description="Return redirect or JSON URL")):
+async def google_sign_in():
     """
     **Step 1: Trigger Google OAuth sign-in flow**
-    
-    Returns the Google OAuth URL (default) or redirects user to Google.
+    w
+    Returns the Google OAuth URL as JSON.
     
     **Usage:**
     - API/Mobile/Swagger: `GET /api/v1/auth/google` → Returns JSON with URL
-    - Browser Direct Link: `GET /api/v1/auth/google?redirect=true` → Redirects to Google
+    - Open the returned URL in a browser to complete authentication
     
-    **Query Parameters:**
-    - redirect (bool): If false (default), returns JSON. If true, returns 302 redirect.
-    
-    **Response (redirect=false) - DEFAULT:**
+    **Response:**
     ```json
     {
         "status_code": 200,
@@ -39,12 +37,11 @@ async def google_sign_in(redirect: bool = Query(False, description="Return redir
     }
     ```
     
-    **Response (redirect=true):**
-    - 302 Redirect to Google OAuth consent page
-    
     **Errors:**
     - 400: Invalid redirect URI configuration
     - 500: Internal server error
+    
+    **Note:** Redirect option removed as it doesn't work with Swagger/API clients due to CORS.
     """
     try:
         # Validate configuration
@@ -71,18 +68,14 @@ async def google_sign_in(redirect: bool = Query(False, description="Return redir
         
         google_auth_url = f"https://accounts.google.com/o/oauth2/v2/auth?{urlencode(params)}"
         
-        # Return redirect or JSON based on query parameter
-        if redirect:
-            return RedirectResponse(url=google_auth_url, status_code=302)
-        else:
-            return {
-                "status_code": 200,
-                "status": "success",
-                "message": "Google OAuth URL generated",
-                "data": {
-                    "google_auth_url": google_auth_url
-                }
+        return {
+            "status_code": 200,
+            "status": "success",
+            "message": "Google OAuth URL generated",
+            "data": {
+                "google_auth_url": google_auth_url
             }
+        }
     
     except HTTPException:
         raise
@@ -100,7 +93,9 @@ async def google_sign_in(redirect: bool = Query(False, description="Return redir
 
 @router.get("/google/callback")
 async def google_callback(
-    code: str = Query(..., description="Authorization code from Google"),
+    code: Optional[str] = Query(None, description="Authorization code from Google"),
+    error: Optional[str] = Query(None, description="Error code if authorization failed"),
+    error_description: Optional[str] = Query(None, description="Human-readable error description"),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -112,7 +107,9 @@ async def google_callback(
     **This endpoint is called by Google, not by your frontend directly.**
     
     **Query Parameters:**
-    - code (required): Authorization code from Google
+    - code (optional): Authorization code from Google (present on success)
+    - error (optional): Error code if user denied or authorization failed
+    - error_description (optional): Human-readable error description
     
     **Success Response:**
     ```json
@@ -134,11 +131,37 @@ async def google_callback(
     ```
     
     **Errors:**
-    - 400: Missing or invalid authorization code
+    - 400: User denied access or missing authorization code
     - 401: Invalid code or token exchange failed
     - 500: Provider error or internal server error
     """
     try:
+        # Check if Google returned an error (user denied, invalid config, etc.)
+        if error:
+            error_messages = {
+                "access_denied": "User denied access to their Google account",
+                "invalid_request": "Invalid OAuth request configuration",
+                "unauthorized_client": "Client not authorized for this request",
+                "unsupported_response_type": "Invalid response_type parameter",
+                "invalid_scope": "Invalid scope requested",
+                "server_error": "Google OAuth server error",
+                "temporarily_unavailable": "Google OAuth temporarily unavailable"
+            }
+            
+            message = error_messages.get(error, f"OAuth error: {error}")
+            if error_description:
+                message += f". {error_description}"
+            
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "status_code": 400,
+                    "status": "error",
+                    "message": message,
+                    "data": {"error": error, "error_description": error_description}
+                }
+            )
+        
         # Validate code parameter
         if not code:
             raise HTTPException(

@@ -40,12 +40,7 @@ The API supports two authentication methods:
 #### GET /auth/google
 Initiates Google OAuth sign-in flow.
 
-**Query Parameters:**
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| redirect | bool | false | If true, redirects to Google. If false, returns JSON with URL. |
-
-**Response (redirect=false):**
+**Response:**
 ```json
 {
     "status_code": 200,
@@ -56,6 +51,8 @@ Initiates Google OAuth sign-in flow.
     }
 }
 ```
+
+**Note:** Always returns JSON. Open the URL in a browser to complete authentication.
 
 ---
 
@@ -294,7 +291,7 @@ Paystack webhook endpoint (called by Paystack, not users).
 ---
 
 #### GET /wallet/deposit/{reference}/status
-Check deposit transaction status.
+Check deposit transaction status from database.
 
 **Authentication:** JWT or API key with `read` permission
 
@@ -312,7 +309,53 @@ Check deposit transaction status.
 }
 ```
 
-⚠️ **Warning:** This endpoint does NOT credit wallets. Only the webhook credits wallets.
+⚠️ **Warning:** This checks our database only. Does NOT credit wallets. Only the webhook credits wallets.
+
+---
+
+#### GET /wallet/deposit/{reference}/verify
+Verify deposit transaction status directly from Paystack.
+
+**Authentication:** JWT or API key with `read` permission
+
+**Use Case:** Check if Paystack has processed a payment when webhook hasn't arrived yet.
+
+**Response:**
+```json
+{
+    "status_code": 200,
+    "status": "success",
+    "message": "Transaction verified with Paystack",
+    "data": {
+        "reference": "DEP_1234567890_ABCD1234",
+        "paystack_status": "success",
+        "amount": 5000,
+        "paid_at": "2024-12-10T14:30:00Z",
+        "channel": "card",
+        "currency": "NGN",
+        "our_status": "pending",
+        "note": "Webhook will credit wallet automatically"
+    }
+}
+```
+
+**Response (Paystack API unavailable):**
+```json
+{
+    "status_code": 200,
+    "status": "success",
+    "message": "Could not verify with Paystack, showing our status",
+    "data": {
+        "reference": "DEP_1234567890_ABCD1234",
+        "our_status": "pending",
+        "amount": 5000,
+        "paystack_error": "Connection timeout",
+        "note": "Paystack verification failed. Check Paystack dashboard or wait for webhook."
+    }
+}
+```
+
+⚠️ **Important:** This endpoint queries Paystack's API but does NOT update your wallet. Only the webhook credits wallets.
 
 ---
 
@@ -427,13 +470,20 @@ Created → Active → Expires/Revoked → Inactive → Can be rolled over/delet
 
 ### Permissions
 
-Each key has one or more of these permissions:
+Each key can have one or more of these permissions. Choose based on what actions the service needs:
 
-| Permission | Allows |
-|-----------|--------|
-| `read` | GET /wallet/balance, GET /wallet/transactions, GET /wallet/deposit/{ref}/status |
-| `deposit` | POST /wallet/deposit (Paystack deposits) |
-| `transfer` | POST /wallet/transfer (send money to other wallets) |
+| Permission | What It Allows | Endpoints | Use Case | Risk Level |
+|-----------|----------------|-----------|----------|------------|
+| **`read`** | View wallet data (read-only) | • `GET /wallet/balance`<br>• `GET /wallet/transactions`<br>• `GET /wallet/deposit/{ref}/status`<br>• `GET /wallet/deposit/{ref}/verify` | Monitoring services, dashboards, accounting tools | ✅ **Low** - Cannot modify balances |
+| **`deposit`** | Initiate Paystack deposits | • `POST /wallet/deposit` | Payment collection services, checkout systems | ⚠️ **Medium** - Can trigger payment flows but cannot transfer funds |
+| **`transfer`** | Send money to other wallets | • `POST /wallet/transfer` | Automated payout systems, withdrawal processors | 🚨 **High** - Can move money out of wallet |
+
+**Important Notes:**
+- **JWT users** (authenticated via Google OAuth) have **all permissions** by default
+- **API keys** must explicitly grant each permission
+- Permissions are **enforced at the endpoint level** - attempts to use endpoints without proper permission return 403 Forbidden
+- You can grant multiple permissions to one key: `["read", "deposit"]` is common for payment collection
+- **Best Practice:** Grant minimum permissions needed (principle of least privilege)
 
 ### Automatic Expiry Handling
 
@@ -475,9 +525,9 @@ All errors follow this structure:
 ### 1. Authenticate with Google OAuth
 ```bash
 # Get Google OAuth URL (returns JSON)
-curl "http://localhost:8000/api/v1/auth/google?redirect=false"
+curl "http://localhost:8000/api/v1/auth/google"
 
-# Response includes google_auth_url - visit that URL in browser
+# Response includes google_auth_url - open that URL in browser
 # After signing in, you'll get a callback with JWT token
 ```
 
@@ -526,7 +576,17 @@ curl -X POST http://localhost:8000/api/v1/wallet/deposit \
 # - authorization_url: Redirect user here to complete payment
 ```
 
-### 6. Transfer Funds
+### 6. Verify Deposit with Paystack
+```bash
+# Check if Paystack processed the payment
+curl http://localhost:8000/api/v1/wallet/deposit/{reference}/verify \
+  -H "Authorization: Bearer <your_jwt_token>"
+
+# Shows Paystack's payment status even if webhook hasn't arrived
+# Does NOT credit wallet - only webhook does that
+```
+
+### 7. Transfer Funds
 ```bash
 # Send money to another user's wallet
 curl -X POST http://localhost:8000/api/v1/wallet/transfer \
@@ -543,7 +603,7 @@ curl -X POST http://localhost:8000/api/v1/wallet/transfer \
 # - Valid recipient wallet
 ```
 
-### 7. Rollover Expired Key
+### 8. Rollover Expired Key
 ```bash
 # Create new key with same permissions as expired key
 curl -X POST http://localhost:8000/api/v1/keys/rollover \
@@ -555,7 +615,7 @@ curl -X POST http://localhost:8000/api/v1/keys/rollover \
   }'
 ```
 
-### 8. Revoke API Key
+### 9. Revoke API Key
 ```bash
 # Permanently disable a key
 curl -X DELETE http://localhost:8000/api/v1/keys/{key_id} \

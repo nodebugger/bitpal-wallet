@@ -184,14 +184,15 @@ async def get_deposit_status(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    **Check deposit transaction status**
+    **Check deposit transaction status from our database**
     
-    Returns the status of a deposit transaction.
+    Returns the status of a deposit transaction from our records.
     
     **Authentication:** JWT or API key with `read` permission
     
     **WARNING:** This endpoint does NOT credit wallets.
     Only the Paystack webhook credits wallets.
+    This only checks our database status.
     
     **Path Parameters:**
     - `reference` - Transaction reference
@@ -257,6 +258,100 @@ async def get_deposit_status(
                 "status_code": 500,
                 "status": "error",
                 "message": "Failed to get transaction status",
+                "data": None
+            }
+        )
+
+
+@router.get("/deposit/{reference}/verify")
+async def verify_deposit_with_paystack(
+    reference: str,
+    auth_user: AuthenticatedUser = Depends(require_read_permission),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    **Verify deposit transaction status directly from Paystack**
+    
+    Queries Paystack API to verify the actual payment status.
+    This does NOT update the wallet - only the webhook does that.
+    
+    **Authentication:** JWT or API key with `read` permission
+    
+    **Use Case:** Check if Paystack has processed a payment when webhook hasn't arrived yet.
+    
+    **Path Parameters:**
+    - `reference` - Transaction reference
+    """
+    try:
+        # Get user's wallet
+        wallet = await WalletService.get_wallet_by_user_id(auth_user.user.id, db)
+        if not wallet:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "status_code": 404,
+                    "status": "error",
+                    "message": "Wallet not found",
+                    "data": None
+                }
+            )
+        
+        # Get transaction from our database
+        transaction = await WalletService.get_transaction_by_reference(reference, wallet, db)
+        if not transaction:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "status_code": 404,
+                    "status": "error",
+                    "message": "Transaction not found in our records",
+                    "data": None
+                }
+            )
+        
+        # Verify with Paystack
+        try:
+            paystack_data = await PaystackService.verify_transaction(reference)
+            
+            return {
+                "status_code": 200,
+                "status": "success",
+                "message": "Transaction verified with Paystack",
+                "data": {
+                    "reference": reference,
+                    "paystack_status": paystack_data.get("status"),
+                    "amount": paystack_data.get("amount", 0) / 100,  # Convert from kobo to naira
+                    "paid_at": paystack_data.get("paid_at"),
+                    "channel": paystack_data.get("channel"),
+                    "currency": paystack_data.get("currency"),
+                    "our_status": transaction.status.value,
+                    "note": "Webhook will credit wallet automatically if payment succeeded"
+                }
+            }
+        except Exception as paystack_error:
+            # Paystack API failed, return our status with error note
+            return {
+                "status_code": 200,
+                "status": "success",
+                "message": "Could not verify with Paystack, showing our status",
+                "data": {
+                    "reference": reference,
+                    "our_status": transaction.status.value,
+                    "amount": float(transaction.amount),
+                    "paystack_error": str(paystack_error),
+                    "note": "Paystack verification failed. Check Paystack dashboard or wait for webhook."
+                }
+            }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "status_code": 500,
+                "status": "error",
+                "message": f"Failed to verify transaction: {str(e)}",
                 "data": None
             }
         )
