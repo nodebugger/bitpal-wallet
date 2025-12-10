@@ -6,18 +6,22 @@ for registering routes in the main application.
 """
 from fastapi import APIRouter
 
-from app.api.routes import general, auth
+from app.api.routes import general, auth, keys, wallet
 
 # API v1 router
 api_v1_router = APIRouter(prefix="/api/v1")
+
+# Authentication routes
 api_v1_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
-# Add more v1 routes here as they're created:
-# api_v1_router.include_router(wallet.router, prefix="/wallet", tags=["Wallet"])
-# api_v1_router.include_router(transfer.router, prefix="/transfers", tags=["Transfers"])
-# api_v1_router.include_router(keys.router, prefix="/keys", tags=["API Keys"])
+
+# API Key management routes
+api_v1_router.include_router(keys.router, prefix="/keys", tags=["API Keys"])
+
+# Wallet routes (deposits, balance, transfers, transactions)
+api_v1_router.include_router(wallet.router, prefix="/wallet", tags=["Wallet"])
 
 
-# General routes
+# General routes (health check, root)
 general_router = APIRouter()
 general_router.include_router(general.router, tags=["General"])
 

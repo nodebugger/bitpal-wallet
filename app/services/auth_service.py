@@ -44,7 +44,7 @@ class AuthService:
     async def get_or_create_user(
         google_id: str,
         email: str,
-        username: str,
+        name: str,
         db: AsyncSession
     ) -> tuple[User, bool]:
         """
@@ -53,7 +53,7 @@ class AuthService:
         Args:
             google_id: Google user ID
             email: User email
-            username: User name
+            name: User's full name
             db: Database session
             
         Returns:
@@ -73,7 +73,7 @@ class AuthService:
             user = User(
                 google_id=google_id,
                 email=email,
-                username=username
+                name=name
             )
             db.add(user)
             await db.flush()
