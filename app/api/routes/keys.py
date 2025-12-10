@@ -92,12 +92,17 @@ async def create_api_key(
             }
         )
     except Exception as e:
+        # Log the actual error for debugging
+        import traceback
+        print(f"❌ Create API key error: {str(e)}")
+        print(traceback.format_exc())
+        
         raise HTTPException(
             status_code=500,
             detail={
                 "status_code": 500,
                 "status": "error",
-                "message": "Failed to create API key",
+                "message": f"Failed to create API key: {str(e)}",
                 "data": None
             }
         )

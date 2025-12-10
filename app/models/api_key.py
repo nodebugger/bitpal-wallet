@@ -17,7 +17,7 @@ class APIKey(Base):
     user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(255), nullable=False)
     key_hash = Column(String(255), unique=True, nullable=False, index=True)  # Hashed API key for lookup
-    key_prefix = Column(String(10), nullable=False)  # First few chars for display (sk_live_xxx...)
+    key_prefix = Column(String(20), nullable=False) 
     permissions = Column(JSON, nullable=False, default=list)  # ["deposit", "transfer", "read"]
     expires_at = Column(DateTime, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)

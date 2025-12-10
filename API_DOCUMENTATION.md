@@ -43,7 +43,7 @@ Initiates Google OAuth sign-in flow.
 **Query Parameters:**
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| redirect | bool | true | If true, redirects to Google. If false, returns JSON with URL. |
+| redirect | bool | false | If true, redirects to Google. If false, returns JSON with URL. |
 
 **Response (redirect=false):**
 ```json
@@ -128,7 +128,7 @@ Create a new API key.
 ---
 
 #### POST /keys/rollover
-Create a new API key from an expired key's permissions.
+Create a new API key from an expired key's permissions. Useful when a key expires but you want to maintain the same permissions.
 
 **Authentication:** JWT only
 
@@ -147,18 +147,29 @@ Create a new API key from an expired key's permissions.
     "status": "success",
     "message": "API key rolled over successfully",
     "data": {
-        "api_key": "sk_live_xxxxx",
+        "api_key": "sk_live_yyyyy",
         "expires_at": "2025-02-01T12:00:00Z"
     }
 }
 ```
 
+**Requirements:**
+- Source key must exist and be expired (or soon-to-expire)
+- You must still be under 5 active keys limit
+- The old key is NOT automatically revoked (use DELETE to revoke if needed)
+
 ---
 
 #### GET /keys/list
-List all API keys for the authenticated user.
+List all API keys for the authenticated user. Automatically marks expired keys as inactive.
 
 **Authentication:** JWT only
+
+**Query Parameters:**
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| limit | int | 50 | Maximum keys to return |
+| offset | int | 0 | Pagination offset |
 
 **Response:**
 ```json
@@ -179,18 +190,36 @@ List all API keys for the authenticated user.
                 "is_expired": false,
                 "created_at": "2024-12-01T10:00:00Z",
                 "last_used_at": "2024-12-15T14:30:00Z"
+            },
+            {
+                "id": "uuid2",
+                "name": "old-service",
+                "key_prefix": "sk_live_yyyyy",
+                "permissions": ["read"],
+                "expires_at": "2024-12-15T10:00:00Z",
+                "is_active": false,
+                "is_revoked": false,
+                "is_expired": true,
+                "created_at": "2024-11-15T10:00:00Z",
+                "last_used_at": "2024-12-10T14:30:00Z"
             }
         ],
-        "total": 1,
+        "total": 2,
         "active_count": 1
     }
 }
 ```
 
+**Note:** Expired keys are automatically marked as `is_active=false` when:
+1. The key is used for authentication and found to be expired
+2. This endpoint is called (proactive cleanup)
+
+Expired keys can be revoked to free up the 5-key limit or use the rollover endpoint to create a new key with the same permissions.
+
 ---
 
 #### DELETE /keys/{key_id}
-Revoke an API key.
+Revoke an API key. Once revoked, the key can no longer be used for authentication.
 
 **Authentication:** JWT only
 
@@ -203,6 +232,12 @@ Revoke an API key.
     "data": null
 }
 ```
+
+**Notes:**
+- Revoked keys are marked `is_revoked=true` and `is_active=false`
+- Revoking a key frees up a slot in your 5-key limit
+- Revoked keys still appear in list but cannot be used
+- Action is immediate and irreversible
 
 ---
 
@@ -374,7 +409,42 @@ Get transaction history.
 
 ---
 
-## Error Handling
+## API Key Authentication
+
+### How API Keys Work
+
+1. **Key Format:** `sk_live_XXXXXXXXXXX` (15-20 characters)
+2. **Header:** `x-api-key: sk_live_XXXXXXXXXXX`
+3. **Database Storage:** Hashed using bcrypt for security
+4. **Prefix Display:** Only first 8 characters shown in list endpoint
+5. **Shown Once:** Full key only displayed when created
+
+### Key Lifecycle
+
+```
+Created → Active → Expires/Revoked → Inactive → Can be rolled over/deleted
+```
+
+### Permissions
+
+Each key has one or more of these permissions:
+
+| Permission | Allows |
+|-----------|--------|
+| `read` | GET /wallet/balance, GET /wallet/transactions, GET /wallet/deposit/{ref}/status |
+| `deposit` | POST /wallet/deposit (Paystack deposits) |
+| `transfer` | POST /wallet/transfer (send money to other wallets) |
+
+### Automatic Expiry Handling
+
+When a key expires:
+1. **On Authentication:** If expired key is used, it's immediately marked `is_active=false`
+2. **On List:** Expired keys are automatically marked inactive when listing keys
+3. **In Response:** Expired keys show `is_expired=true` and `is_active=false`
+4. **Rejection:** Expired keys cannot be used for any operations
+5. **Can Rollover:** Use rollover endpoint to create new key with same permissions
+
+---
 
 All errors follow this structure:
 
@@ -389,50 +459,107 @@ All errors follow this structure:
 
 ### Common Error Codes
 
-| Code | Description |
-|------|-------------|
-| 400 | Bad Request - Invalid input |
-| 401 | Unauthorized - Invalid or missing authentication |
-| 403 | Forbidden - Missing required permissions |
-| 404 | Not Found - Resource doesn't exist |
-| 500 | Internal Server Error |
+| Code | Description | Example |
+|------|-------------|---------|
+| 400 | Bad Request - Invalid input | Invalid wallet number format |
+| 401 | Unauthorized - Invalid/missing auth | Missing Authorization header or invalid token |
+| 403 | Forbidden - Missing required permissions | Using read-only key for transfer |
+| 404 | Not Found - Resource doesn't exist | Wallet number doesn't exist |
+| 422 | Unprocessable Entity - Validation error | Insufficient balance for transfer |
+| 500 | Internal Server Error | Database connection failed |
 
 ---
 
 ## Quick Start
 
-### 1. Authenticate
+### 1. Authenticate with Google OAuth
 ```bash
-# Get Google OAuth URL
-curl http://localhost:8000/api/v1/auth/google?redirect=false
+# Get Google OAuth URL (returns JSON)
+curl "http://localhost:8000/api/v1/auth/google?redirect=false"
+
+# Response includes google_auth_url - visit that URL in browser
+# After signing in, you'll get a callback with JWT token
 ```
 
 ### 2. Create API Key
 ```bash
+# Create a key with deposit and read permissions, expires in 1 day
 curl -X POST http://localhost:8000/api/v1/keys/create \
   -H "Authorization: Bearer <your_jwt_token>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-service", "permissions": ["deposit", "read"], "expiry": "1D"}'
+  -d '{
+    "name": "my-service",
+    "permissions": ["deposit", "read"],
+    "expiry": "1D"
+  }'
+
+# Response includes full API key (shown only once!)
+# Store it securely
 ```
 
-### 3. Check Balance (with API Key)
+### 3. List Your API Keys
 ```bash
+# See all your keys and their status
+curl http://localhost:8000/api/v1/keys/list \
+  -H "Authorization: Bearer <your_jwt_token>"
+
+# Shows: active_count, total, is_expired status for each key
+```
+
+### 4. Check Balance (with API Key)
+```bash
+# Use the API key from step 2 (must have 'read' permission)
 curl http://localhost:8000/api/v1/wallet/balance \
   -H "x-api-key: sk_live_xxxxx"
 ```
 
-### 4. Make Deposit
+### 5. Make Deposit
 ```bash
+# Initiate Paystack deposit
 curl -X POST http://localhost:8000/api/v1/wallet/deposit \
   -H "Authorization: Bearer <your_jwt_token>" \
   -H "Content-Type: application/json" \
   -d '{"amount": 5000}'
+
+# Response includes:
+# - reference: Store for status checking
+# - authorization_url: Redirect user here to complete payment
 ```
 
-### 5. Transfer Funds
+### 6. Transfer Funds
 ```bash
+# Send money to another user's wallet
 curl -X POST http://localhost:8000/api/v1/wallet/transfer \
   -H "Authorization: Bearer <your_jwt_token>" \
   -H "Content-Type: application/json" \
-  -d '{"wallet_number": "1234567890123", "amount": 1000}'
+  -d '{
+    "wallet_number": "1234567890123",
+    "amount": 1000
+  }'
+
+# Requires:
+# - 'transfer' permission (if using API key)
+# - Sufficient balance
+# - Valid recipient wallet
+```
+
+### 7. Rollover Expired Key
+```bash
+# Create new key with same permissions as expired key
+curl -X POST http://localhost:8000/api/v1/keys/rollover \
+  -H "Authorization: Bearer <your_jwt_token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "expired_key_id": "FGH2485K6KK79GKG9GKGK",
+    "expiry": "1M"
+  }'
+```
+
+### 8. Revoke API Key
+```bash
+# Permanently disable a key
+curl -X DELETE http://localhost:8000/api/v1/keys/{key_id} \
+  -H "Authorization: Bearer <your_jwt_token>"
+
+# This frees up a slot in your 5-key limit
 ```

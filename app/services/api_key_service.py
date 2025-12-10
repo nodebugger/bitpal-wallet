@@ -103,6 +103,9 @@ class APIKeyService:
         await db.commit()
         await db.refresh(api_key)
         
+        # Ensure expires_at is loaded before returning
+        _ = api_key.expires_at
+        
         return api_key, full_key
     
     @staticmethod
@@ -147,7 +150,10 @@ class APIKeyService:
         if not api_key_obj.is_active:
             return None
         
+        # Check expiration and mark as inactive if expired
         if api_key_obj.is_expired():
+            api_key_obj.is_active = False
+            await db.commit()
             return None
         
         # Update last used timestamp
@@ -241,8 +247,47 @@ class APIKeyService:
         return True
     
     @staticmethod
+    async def mark_expired_keys_inactive(user_id: str, db: AsyncSession) -> int:
+        """
+        Mark all expired keys as inactive for a user.
+        
+        Args:
+            user_id: User ID
+            db: Database session
+            
+        Returns:
+            int: Number of keys marked as inactive
+        """
+        stmt = select(APIKey).where(
+            and_(
+                APIKey.user_id == user_id,
+                APIKey.is_active == True,
+                APIKey.expires_at <= datetime.utcnow()
+            )
+        )
+        result = await db.execute(stmt)
+        expired_keys = result.scalars().all()
+        
+        count = 0
+        for key in expired_keys:
+            key.is_active = False
+            count += 1
+        
+        if count > 0:
+            await db.commit()
+        
+        return count
+    
+    @staticmethod
     async def list_user_api_keys(user_id: str, db: AsyncSession) -> List[APIKey]:
-        """Get all API keys for a user."""
+        """
+        Get all API keys for a user.
+        Also marks expired keys as inactive automatically.
+        """
+        # First, mark any expired keys as inactive
+        await APIKeyService.mark_expired_keys_inactive(user_id, db)
+        
+        # Then retrieve all keys
         stmt = select(APIKey).where(APIKey.user_id == user_id).order_by(APIKey.created_at.desc())
         result = await db.execute(stmt)
         return list(result.scalars().all())

@@ -14,23 +14,20 @@ router = APIRouter()
 
 
 @router.get("/google")
-async def google_sign_in(redirect: bool = Query(True, description="Return redirect or JSON URL")):
+async def google_sign_in(redirect: bool = Query(False, description="Return redirect or JSON URL")):
     """
     **Step 1: Trigger Google OAuth sign-in flow**
     
-    Redirects user to Google's OAuth consent page or returns the auth URL.
+    Returns the Google OAuth URL (default) or redirects user to Google.
     
     **Usage:**
-    - Browser/Frontend: `GET /api/v1/auth/google` → Redirects to Google
-    - API/Mobile: `GET /api/v1/auth/google?redirect=false` → Returns JSON with URL
+    - API/Mobile/Swagger: `GET /api/v1/auth/google` → Returns JSON with URL
+    - Browser Direct Link: `GET /api/v1/auth/google?redirect=true` → Redirects to Google
     
     **Query Parameters:**
-    - redirect (bool): If true (default), returns 302 redirect. If false, returns JSON.
+    - redirect (bool): If false (default), returns JSON. If true, returns 302 redirect.
     
-    **Response (redirect=true):**
-    - 302 Redirect to Google OAuth consent page
-    
-    **Response (redirect=false):**
+    **Response (redirect=false) - DEFAULT:**
     ```json
     {
         "status_code": 200,
@@ -41,6 +38,9 @@ async def google_sign_in(redirect: bool = Query(True, description="Return redire
         }
     }
     ```
+    
+    **Response (redirect=true):**
+    - 302 Redirect to Google OAuth consent page
     
     **Errors:**
     - 400: Invalid redirect URI configuration
