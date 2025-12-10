@@ -240,12 +240,17 @@ async def google_callback(
             }
         )
     except Exception as e:
+        # Log the actual error for debugging
+        import traceback
+        print(f"❌ OAuth callback error: {str(e)}")
+        print(traceback.format_exc())
+        
         raise HTTPException(
             status_code=500,
             detail={
                 "status_code": 500,
                 "status": "error",
-                "message": "Authentication failed",
+                "message": f"Authentication failed: {str(e)}",
                 "data": None
             }
         )

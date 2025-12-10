@@ -1,6 +1,7 @@
 """Main FastAPI application with lifespan management."""
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 import logging
 
 from app.core.config import settings
@@ -42,6 +43,21 @@ app = FastAPI(
     debug=settings.DEBUG,
     description="Bitpal Wallet Service - Secure digital wallet with Paystack integration",
     lifespan=lifespan,
+)
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
+        "https://bitpal-wallet-nodebugger1317-7uazwa8e.leapcell.dev",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Register routers

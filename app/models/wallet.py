@@ -29,7 +29,12 @@ class Wallet(Base):
     
     # Relationships
     user = relationship("User", back_populates="wallet")
-    transactions = relationship("Transaction", back_populates="wallet", cascade="all, delete-orphan")
+    transactions = relationship(
+        "Transaction", 
+        back_populates="wallet", 
+        cascade="all, delete-orphan",
+        foreign_keys="[Transaction.wallet_id]"
+    )
     
     def __repr__(self):
         return f"<Wallet {self.wallet_number} - Balance: {self.balance}>"

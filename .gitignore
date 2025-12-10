@@ -22,7 +22,8 @@ venv/
 Thumbs.db
 
 # Alembic
-alembic/versions/*
+alembic/versions/
+alembic/versions_backup
 
 .pytest_cache/
 
